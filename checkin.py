@@ -349,6 +349,52 @@ def format_check_in_notification(detail: dict) -> str:
 
 	return '\n'.join(lines)
 
+def write_github_summary(details, success_count, total_count):
+	summary_path = os.getenv('GITHUB_STEP_SUMMARY', '').strip()
+	if not summary_path:
+		return
+
+	rows = []
+	for detail in details.values():
+		name = str(detail.get('name', '未知账号')).replace('|', r'\|').replace('\n', ' ')
+		before_quota = float(detail.get('before_quota', 0) or 0)
+		after_quota = float(detail.get('after_quota', 0) or 0)
+		reward = float(detail.get('check_in_reward', 0) or 0)
+		success = bool(detail.get('success'))
+
+		if not success:
+			status = '❌ 签到失败'
+		elif reward > 0:
+			status = f'✅ 签到成功，领取 ${reward:.2f}'
+		else:
+			status = '✅ 登录/签到完成（未检测到新增额度）'
+
+		reward_text = f'+${reward:.2f}' if reward > 0 else '—'
+		rows.append(
+			f'| {name} | {status} | ${before_quota:.2f} | {reward_text} | ${after_quota:.2f} |'
+		)
+
+	if not rows:
+		rows.append('| 无可用账号明细 | ❌ 未获取到账号结果 | — | — | — |')
+
+	lines = [
+		'## AnyRouter 每日签到',
+		'',
+		'> 摘要显示账号和额度，不包含 Cookie 或访问令牌。请保持仓库为私有。',
+		'',
+		'| 账号 | 结果 | 签到前余额 | 领取金额 | 现在余额 |',
+		'|---|---|---:|---:|---:|',
+		*rows,
+		'',
+		f'- 成功账号：{success_count}/{total_count}',
+		f'- 执行时间：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+		'- 余额来自本次运行读取结果，不是持续刷新的实时余额。',
+		'',
+	]
+
+	with open(summary_path, 'a', encoding='utf-8') as handle:
+		handle.write('\n'.join(lines))
+
 
 async def check_in_account(account: AccountConfig, account_index: int, app_config: AppConfig):
 	"""为单个账号执行签到操作"""
@@ -634,6 +680,8 @@ async def main():
 		print('[NOTIFY] Notification sent due to failures or balance changes')
 	else:
 		print('[INFO] All accounts successful and no balance changes detected, notification skipped')
+
+	write_github_summary(account_check_in_details, success_count, total_count)
 
 	sys.exit(0 if success_count > 0 else 1)
 
